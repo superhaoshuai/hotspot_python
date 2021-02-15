@@ -237,6 +237,9 @@ def state_level_computation_multitask(state, transfer):
 
     if args.explainer == 'IMVTensorLSTMMultiTask' or args.explainer == 'TransferLearning':
         model = IMVTensorLSTMMultiTask(input_share_dim, input_task_feature, task_num, 1, hidden_size, device).to(device)
+        if not args.train:
+            model_path = '../model_save/' + args.explainer + '/' + state + '/' + state + ".pt"
+            model.load_state_dict(torch.load(model_path))
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001, amsgrad=True)
         epoch_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 100, gamma=0.5)
         if args.train:
