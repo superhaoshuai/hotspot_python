@@ -292,7 +292,7 @@ def main():
                   "NM", "CA", "UT", "ND", "HI", "MN", "OR", "MT", "CO", "KS", "WY", "NE", "SD", "CT", "MA", "ME",
                   "VT", "RI", "MD", "VA", "DE", "PA", "OH", "NJ", "SC", "NC", "IA", "WI", "IL", "ID", "KY", "IN",
                   "WV", "NH", "DC"]
-    state_list = ["NY_flu"]
+    state_list = ["NY"]
     for i, state in enumerate(state_list):
         if not os.path.exists('../plots/' + args.explainer + '/' + state):
             os.mkdir('../plots/' + args.explainer + '/' + state)
