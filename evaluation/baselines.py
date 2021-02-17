@@ -3,7 +3,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from TSX.utils import load_data, load_county_data, get_initial_county_data, train_model, load_county_name, get_importance_value, \
     plot_temporal_importance, get_top_importance_value, get_normalize_importance_value, get_hotspot_weight, \
     train_model_multitask
-from TSX.models import IMVTensorLSTM, IMVTensorLSTMMultiTask
+from TSX.models import IMVTensorLSTM, IMVTensorLSTMMultiTask, IMVTensorLSTMMultiTaskEM
 
 import os
 import sys
@@ -177,7 +177,8 @@ def state_level_computation_multitask(state, transfer):
         else:
             df = load_data(path + 'NY_covid_mobility_link_weekly.csv')
     feature_county_list = list(df.columns[4:])
-    county_list = list(set(df['next_area_fip'].tolist()))[10:14]
+    county_list = list(set(df['next_area_fip'].tolist()))
+    county_list = [17031, 17019, 17097, 17043, 17197]
     county_list = [str(ct) for ct in county_list]
     county_name_list = load_county_name(county_list)
     county_dict = dict(zip(county_list, county_name_list))
@@ -241,13 +242,12 @@ def state_level_computation_multitask(state, transfer):
             model_path = '../model_save/' + args.explainer + '/' + state + '/' + state + ".pt"
             model.load_state_dict(torch.load(model_path))
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001, amsgrad=True)
-        epoch_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 100, gamma=0.5)
-        if args.train:
-            train_model_multitask(model, args.explainer, data_train_loader_list, data_test_loader_list, flu_model,
-                                  input_task_feature, optimizer=optimizer, epoch_scheduler=epoch_scheduler, n_epochs=n_epochs,
-                                  device=device, state=state, iterations=iterations, cv=0)
-        else:
-            pass
+        epoch_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 100, gamma=1)
+
+        train_model_multitask(model, args.explainer, data_train_loader_list, data_test_loader_list, flu_model,
+                              input_task_feature, optimizer=optimizer, epoch_scheduler=epoch_scheduler, n_epochs=n_epochs,
+                              device=device, state=state, iterations=iterations, cv=0)
+
     else:
         model = []
     stop_time = timeit.default_timer()
@@ -276,7 +276,7 @@ def state_level_computation_multitask(state, transfer):
         sort_values(by='Importance_score', ascending=False)
     importance_df['county_name'] = load_county_name(importance_df['fips'])
     print(performance_df.head())
-    print(importance_df.head())
+    print(importance_df.head(10))
     output_path = "../outputs/" + args.explainer + "/" + state + "/"
     performance_path = output_path + "Total_county_performance.csv"
     importance_path = output_path + "Total_county_importance.csv"
@@ -292,7 +292,7 @@ def main():
                   "NM", "CA", "UT", "ND", "HI", "MN", "OR", "MT", "CO", "KS", "WY", "NE", "SD", "CT", "MA", "ME",
                   "VT", "RI", "MD", "VA", "DE", "PA", "OH", "NJ", "SC", "NC", "IA", "WI", "IL", "ID", "KY", "IN",
                   "WV", "NH", "DC"]
-    state_list = ["NY"]
+    state_list = ["IL"]
     for i, state in enumerate(state_list):
         if not os.path.exists('../plots/' + args.explainer + '/' + state):
             os.mkdir('../plots/' + args.explainer + '/' + state)
@@ -312,13 +312,13 @@ def main():
 if __name__ == '__main__':
     np.random.seed(2021)
     parser = argparse.ArgumentParser(description='Run baseline model for covid')
-    parser.add_argument('--explainer', type=str, default='TransferLearning', help='Explainer model')
+    parser.add_argument('--explainer', type=str, default='IMVTensorLSTMMultiTask', help='Explainer model')
     parser.add_argument('--fillna', type=str, default='zero', help='fill na')
-    parser.add_argument('--seq_length', type=int, default=3, help='seq_length')
+    parser.add_argument('--seq_length', type=int, default=14, help='seq_length')
     parser.add_argument('--batch_size', type=int, default=32, help='batch_size')
     parser.add_argument('--hidden_size', type=int, default=128, help='hidden_size')
-    parser.add_argument('--n_epochs', type=int, default=200, help='n_epochs')
-    parser.add_argument('--test_data_size', type=int, default=5, help='test_data_size')
+    parser.add_argument('--n_epochs', type=int, default=250, help='n_epochs')
+    parser.add_argument('--test_data_size', type=int, default=16, help='test_data_size')
     parser.add_argument('--train', action='store_false')
     parser.add_argument('--save', action='store_false')
     args = parser.parse_args()
@@ -337,6 +337,5 @@ if __name__ == '__main__':
     if not os.path.exists('../plots/' + args.explainer):
         os.mkdir('../plots/' + args.explainer)
     main()
-
 
 

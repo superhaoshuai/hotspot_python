@@ -197,6 +197,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 y_pred, alphas, betas, theta = model(batch_x, task_idx, activated_share_columns)
                 l_list += [1 / (2 * torch.exp(theta)) * loss(y_pred, batch_y) + theta / 2]
 
+                #
             if model_name == "TransferLearning" and state == "NY_flu_covid":
                 flu_params = flu_model.state_dict()
                 covid_params = model.state_dict()
@@ -204,9 +205,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 for name, param in model.named_parameters():
                     if name in updating_params:
                         l_list += [1 / (2 * torch.exp(theta))
-                                   * torch.linalg.norm(param
-                                                       - flu_params[name])
-                                   * lambda_reg]
+                                   * torch.linalg.norm(param - flu_params[name]) * lambda_reg]
             l = sum(l_list)
             l.backward()
             mse_train += l.item()
@@ -306,5 +305,6 @@ def plot_temporal_importance(alphas, feature_name, explainer, state, fips, count
     plt.savefig(plot_path, orientation='Portrait')
     #plt.show()
     plt.close()
+
 
 
