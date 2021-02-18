@@ -3,7 +3,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from TSX.utils import load_data, load_county_data, get_initial_county_data, train_model, load_county_name, get_importance_value, \
     plot_temporal_importance, get_top_importance_value, get_normalize_importance_value, get_hotspot_weight, \
     train_model_multitask
-from TSX.models import IMVTensorLSTM, IMVTensorLSTMMultiTask, IMVTensorLSTMMultiTaskEM
+from TSX.models import IMVTensorLSTM, IMVTensorLSTMMultiTask
 
 import os
 import sys
@@ -51,10 +51,10 @@ def evaluate_performance(model, state, fips, county_name, scaler, X_train, y_tra
         activated_share_columns = activated_share_columns[0, :]
         task_idx = task_idx[0].type(torch.LongTensor)
         with torch.no_grad():
-            total_predict, total_alphas, total_betas, theta = model(X_total.to(device), task_idx, activated_share_columns)
-            train_predict, train_alphas, train_betas, theta = model(X_train.to(device), task_idx, activated_share_columns)
+            total_predict, total_alphas, total_betas, theta, neg_llk = model(X_total.to(device), y_total.to(device), task_idx, activated_share_columns)
+            train_predict, train_alphas, train_betas, theta, neg_llk = model(X_train.to(device), y_train.to(device), task_idx, activated_share_columns)
             if state != "NY_flu":
-                test_predict, test_alphas, test_betas, theta = model(X_test.to(device), task_idx, activated_share_columns)
+                test_predict, test_alphas, test_betas, theta, neg_llk = model(X_test.to(device), y_test.to(device), task_idx, activated_share_columns)
     else:
         with torch.no_grad():
             total_predict, total_alphas, total_betas = model(X_total.to(device))
@@ -230,14 +230,14 @@ def state_level_computation_multitask(state, transfer):
     iterations = math.ceil(train_size / args.batch_size)
     start_time = timeit.default_timer()
 
-    flu_model = IMVTensorLSTMMultiTask(input_share_dim, input_task_feature, task_num, 1, hidden_size, device).to(device)
+    flu_model = IMVTensorLSTMMultiTask(input_share_dim, input_task_feature, task_num, 1, hidden_size, device, args.em, args.drop_prob).to(device)
     if transfer:
         if state == "NY_flu_covid":
             model_path = '../model_save/' + args.explainer + '/NY_flu/NY_flu.pt'
             flu_model.load_state_dict(torch.load(model_path))
 
     if args.explainer == 'IMVTensorLSTMMultiTask' or args.explainer == 'TransferLearning':
-        model = IMVTensorLSTMMultiTask(input_share_dim, input_task_feature, task_num, 1, hidden_size, device).to(device)
+        model = IMVTensorLSTMMultiTask(input_share_dim, input_task_feature, task_num, 1, hidden_size, device, args.em, args.drop_prob).to(device)
         if not args.train:
             model_path = '../model_save/' + args.explainer + '/' + state + '/' + state + ".pt"
             model.load_state_dict(torch.load(model_path))
@@ -246,7 +246,7 @@ def state_level_computation_multitask(state, transfer):
 
         train_model_multitask(model, args.explainer, data_train_loader_list, data_test_loader_list, flu_model,
                               input_task_feature, optimizer=optimizer, epoch_scheduler=epoch_scheduler, n_epochs=n_epochs,
-                              device=device, state=state, iterations=iterations, cv=0)
+                              device=device, state=state, iterations=iterations, lambda_reg=args.lambda_reg, cv=0)
 
     else:
         model = []
@@ -311,16 +311,21 @@ def main():
 
 if __name__ == '__main__':
     np.random.seed(2021)
+    dir_path = os.path.dirname(os.path.realpath(__file__)).replace('\evaluation', '')
+    sys.path.append(dir_path)
     parser = argparse.ArgumentParser(description='Run baseline model for covid')
     parser.add_argument('--explainer', type=str, default='IMVTensorLSTMMultiTask', help='Explainer model')
     parser.add_argument('--fillna', type=str, default='zero', help='fill na')
     parser.add_argument('--seq_length', type=int, default=14, help='seq_length')
     parser.add_argument('--batch_size', type=int, default=32, help='batch_size')
     parser.add_argument('--hidden_size', type=int, default=128, help='hidden_size')
-    parser.add_argument('--n_epochs', type=int, default=250, help='n_epochs')
+    parser.add_argument('--n_epochs', type=int, default=500, help='n_epochs')
     parser.add_argument('--test_data_size', type=int, default=16, help='test_data_size')
+    parser.add_argument('--drop_prob', type=float, default=0.0, help='drop prob')
+    parser.add_argument('--lambda_reg', type=float, default=0.0, help='lambda regulation')
     parser.add_argument('--train', action='store_false')
-    parser.add_argument('--save', action='store_false')
+    parser.add_argument('--em', action='store_false')
+    parser.add_argument('--save', action='store_true')
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # device = 'cpu'
@@ -336,6 +341,13 @@ if __name__ == '__main__':
         os.mkdir('../outputs/' + args.explainer)
     if not os.path.exists('../plots/' + args.explainer):
         os.mkdir('../plots/' + args.explainer)
-    main()
+
+    for i in [0.1, 0.01, 0.001]:
+        for j in [0.0, 0.1, 0.2]:
+            args.lambda_reg = i
+            args.drop_prob = j
+            print("regulation: {}, drop prob: {}".format(i, j))
+            main()
+
 
 

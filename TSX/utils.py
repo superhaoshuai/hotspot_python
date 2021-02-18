@@ -169,8 +169,8 @@ def train_model(model, model_name, train_loader, valid_loader, optimizer, epoch_
 
 
 def train_model_multitask(model, model_name, data_train_loader_list, valid_loader_list, flu_model, input_task_feature,
-                          optimizer, epoch_scheduler, n_epochs, device, state, iterations, cv=0):
-    loss = torch.nn.MSELoss()
+                          optimizer, epoch_scheduler, n_epochs, device, state, iterations, lambda_reg, cv=0):
+    loss_fn = torch.nn.MSELoss()
     patience = n_epochs
     min_val_loss = 9999
     counter = 0
@@ -178,7 +178,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
     train_loss_trend = []
     test_loss_trend = []
     data_train_loader_iterator_list = [iter(data_loader) for data_loader in data_train_loader_list]
-    lambda_reg = 0.0
+    lambda_trans = 0.0
     for i in range(n_epochs):
         mse_train = 0
         for j in range(iterations):
@@ -194,10 +194,13 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 batch_y = batch_y.to(device)
                 task_idx = task_idx[0].type(torch.LongTensor)
                 activated_share_columns = activated_share_columns[0, :]
-                y_pred, alphas, betas, theta = model(batch_x, task_idx, activated_share_columns)
-                l_list += [1 / (2 * torch.exp(theta)) * loss(y_pred, batch_y) + theta / 2]
-
-                #
+                y_pred, alphas, betas, theta, loss = model(batch_x, batch_y, task_idx, activated_share_columns)
+                l_list += [1 / (2 * torch.exp(theta)) * loss + theta / 2]
+                regularization_params_list = ['F_alpha_n', 'F_alpha_n_b', 'F_beta.weight']
+                for name, param in model.named_parameters():
+                    if name in regularization_params_list:
+                        l_list += [1 / (2 * torch.exp(theta))
+                                   * torch.linalg.norm(param) * lambda_reg]
             if model_name == "TransferLearning" and state == "NY_flu_covid":
                 flu_params = flu_model.state_dict()
                 covid_params = model.state_dict()
@@ -205,7 +208,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 for name, param in model.named_parameters():
                     if name in updating_params:
                         l_list += [1 / (2 * torch.exp(theta))
-                                   * torch.linalg.norm(param - flu_params[name]) * lambda_reg]
+                                   * torch.linalg.norm(param - flu_params[name]) * lambda_trans]
             l = sum(l_list)
             l.backward()
             mse_train += l.item()
@@ -218,8 +221,8 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                     batch_x = batch_x.to(device)
                     batch_y = batch_y.to(device)
                     activated_share_columns = activated_share_columns[0, :]
-                    output_val, alphas_val, betas_val, theta = model(batch_x, task_idx[0].type(torch.LongTensor), activated_share_columns)
-                    mse_val += loss(output_val, batch_y).item()
+                    output_val, alphas_val, betas_val, theta, loss = model(batch_x, batch_y, task_idx[0].type(torch.LongTensor), activated_share_columns)
+                    mse_val += loss_fn(output_val, batch_y).item()
         train_loss_trend += [mse_train]
         test_loss_trend += [mse_val]
         if min_val_loss > mse_val ** 0.5:
@@ -229,7 +232,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
             counter += 1
         if counter == patience:
             break
-        if i % 5 == 0:
+        if i % 100 == 0:
             print("Iter: ", i, "train: ", mse_train ** 0.5, "val: ", mse_val ** 0.5)
             torch.save(model.state_dict(), save_model_path + state + ".pt")
     plt.plot(train_loss_trend, label='Train loss')
