@@ -1,3 +1,8 @@
+import os
+import sys
+dir_path = os.path.dirname(os.path.realpath(__file__)).replace('\evaluation', '')
+sys.path.append(dir_path)
+
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from TSX.utils import load_data, load_county_data, get_initial_county_data, train_model, load_county_name, get_importance_value, \
@@ -311,8 +316,6 @@ def main():
 
 if __name__ == '__main__':
     np.random.seed(2021)
-    dir_path = os.path.dirname(os.path.realpath(__file__)).replace('\evaluation', '')
-    sys.path.append(dir_path)
     parser = argparse.ArgumentParser(description='Run baseline model for covid')
     parser.add_argument('--explainer', type=str, default='IMVTensorLSTMMultiTask', help='Explainer model')
     parser.add_argument('--fillna', type=str, default='zero', help='fill na')
