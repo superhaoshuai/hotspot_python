@@ -191,8 +191,8 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                     batch_x, batch_y, task_idx, activated_share_columns = next(data_train_loader_iterator_list[k])
                 batch_x = batch_x.to(device)
                 batch_y = batch_y.to(device)
-                task_idx = task_idx[0].type(torch.LongTensor)
-                activated_share_columns = activated_share_columns[0, :]
+                # task_idx = task_idx[0].type(torch.LongTensor)
+                # activated_share_columns = activated_share_columns[0, :]
                 y_pred, alphas, betas, theta, loss = model(batch_x, batch_y, task_idx, activated_share_columns)
                 l_list += [1 / (2 * torch.exp(theta)) * loss + theta / 2]
                 # l_list += [loss]
@@ -221,8 +221,9 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 for batch_x, batch_y, task_idx, activated_share_columns in valid_loader:
                     batch_x = batch_x.to(device)
                     batch_y = batch_y.to(device)
-                    activated_share_columns = activated_share_columns[0, :]
-                    output_val, alphas_val, betas_val, theta, loss = model(batch_x, batch_y, task_idx[0].type(torch.LongTensor), activated_share_columns)
+                    # activated_share_columns = activated_share_columns[0, :]
+                    # task_idx = task_idx[0].type(torch.LongTensor)
+                    output_val, alphas_val, betas_val, theta, loss = model(batch_x, batch_y, task_idx, activated_share_columns)
                     mse_val += loss_fn(output_val, batch_y).item()
         train_loss_trend += [mse_train]
         test_loss_trend += [mse_val]

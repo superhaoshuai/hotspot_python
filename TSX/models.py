@@ -118,6 +118,10 @@ class IMVTensorLSTMMultiTask(torch.jit.ScriptModule):
     def forward(self, x, y, task_idx, activated_share_columns):
         h_tilda_t = torch.zeros(x.shape[0], self.input_dim, self.n_units).to(self.device)
         c_tilda_t = torch.zeros(x.shape[0], self.input_dim, self.n_units).to(self.device)
+
+        task_idx = task_idx[0].type(torch.LongTensor)
+        activated_share_columns = activated_share_columns[0, :]
+
         outputs = torch.jit.annotate(List[Tensor], [])
         task_vector = torch.repeat_interleave(torch.tensor([int(i == task_idx) for i in range(self.task_num)]),
                                               self.input_task_feature, dim=0)
