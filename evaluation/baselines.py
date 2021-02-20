@@ -317,7 +317,7 @@ if __name__ == '__main__':
     parser.add_argument('--explainer', type=str, default='IMVTensorLSTMMultiTask', help='Explainer model')
     parser.add_argument('--fillna', type=str, default='zero', help='fill na')
     parser.add_argument('--seq_length', type=int, default=14, help='seq_length')
-    parser.add_argument('--batch_size', type=int, default=8, help='batch_size')
+    parser.add_argument('--batch_size', type=int, default=12, help='batch_size')
     parser.add_argument('--hidden_size', type=int, default=128, help='hidden_size')
     parser.add_argument('--n_epochs', type=int, default=150, help='n_epochs')
     parser.add_argument('--test_data_size', type=int, default=16, help='test_data_size')
