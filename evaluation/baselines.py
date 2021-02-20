@@ -12,12 +12,10 @@ import tqdm
 import torch
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import pickle
 import math
 import timeit
 import matplotlib.pyplot as plt
-sns.set()
 
 from matplotlib import rc
 rc('font', weight='bold')

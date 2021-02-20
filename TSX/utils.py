@@ -2,7 +2,6 @@ import torch
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import TensorDataset, DataLoader
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -285,7 +284,7 @@ def get_overall_importance_value():
 
 def plot_temporal_importance_sns(alphas, feature_name, explainer, fips, county_name):
     fig, ax = plt.subplots(figsize=(30, 30))
-    ax = sns.heatmap(alphas, cmap="Reds", linewidths=.1, annot=True, fmt=".2f")
+    # ax = sns.heatmap(alphas, cmap="Reds", linewidths=.1, annot=True, fmt=".2f")
     plt.show()
 
 
