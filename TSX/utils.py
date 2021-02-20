@@ -191,10 +191,11 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                     batch_x, batch_y, task_idx, activated_share_columns = next(data_train_loader_iterator_list[k])
                 batch_x = batch_x.to(device)
                 batch_y = batch_y.to(device)
-                # activated_share_columns = activated_share_columns
+                # activated_share_columns = activated_share_columns[0, :]
                 task_idx = task_idx.type(torch.LongTensor)
                 y_pred, alphas, betas, theta, loss = model(batch_x, batch_y, task_idx, activated_share_columns)
-                l_list += [1 / (2 * torch.exp(theta)) * loss + theta / 2]
+                theta = theta.mean()
+                l_list += [1 / (2 * torch.exp(theta)) * loss.mean() + theta / 2]
                 # l_list += [loss]
                 regularization_params_list = ['F_alpha_n', 'F_alpha_n_b', 'F_beta.weight']
                 for name, param in model.named_parameters():

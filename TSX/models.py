@@ -207,8 +207,8 @@ class IMVTensorLSTMMultiTask(torch.jit.ScriptModule):
             tmp_llk = torch.exp(-0.5 * torch.square(y_tile - h_mean_real)) / (2.0 * self.torch_pi) ** 0.5
             lk = torch.sum(tmp_llk * betas_1, dim=1)
             neg_llk = torch.sum(-1.0 * torch.log(lk + 1e-5), dim=0)
-            betas_temp = torch.zeros(betas.shape).to(self.device)
             # -- posterior variable
+            betas_temp = torch.zeros(betas.shape).to(self.device)
             tmp_energy = torch.exp(-0.5 * torch.square(y_tile - h_mean_real)) + 0.001
             joint_llk = tmp_energy * betas_1
             normalizer = torch.sum(joint_llk, 1, keepdim=True)
