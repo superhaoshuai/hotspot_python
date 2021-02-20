@@ -119,7 +119,7 @@ class IMVTensorLSTMMultiTask(torch.jit.ScriptModule):
         h_tilda_t = torch.zeros(x.shape[0], self.input_dim, self.n_units).to(self.device)
         c_tilda_t = torch.zeros(x.shape[0], self.input_dim, self.n_units).to(self.device)
 
-        task_idx = task_idx[0].type(torch.LongTensor)
+        task_idx = task_idx[0]
         activated_share_columns = activated_share_columns[0, :]
 
         outputs = torch.jit.annotate(List[Tensor], [])
