@@ -233,7 +233,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
             counter += 1
         if counter == patience:
             break
-        if i % 100 == 0:
+        if i % 20 == 0:
             print("Iter: ", i, "train: ", mse_train ** 0.5, "val: ", mse_val ** 0.5)
             torch.save(model.state_dict(), save_model_path + state + ".pt")
     plt.plot(train_loss_trend, label='Train loss')
