@@ -235,7 +235,11 @@ def state_level_computation_multitask(state, transfer):
             flu_model.load_state_dict(torch.load(model_path))
 
     if args.explainer == 'IMVTensorLSTMMultiTask' or args.explainer == 'TransferLearning':
-        model = IMVTensorLSTMMultiTask(input_share_dim, input_task_feature, task_num, 1, hidden_size, device, args.em, args.drop_prob).to(device)
+        model = IMVTensorLSTMMultiTask(input_share_dim, input_task_feature, task_num, 1, hidden_size, device, args.em,
+                                       args.drop_prob).to(device)
+        if torch.cuda.device_count() > 1:
+            print("Let's use", torch.cuda.device_count(), "GPUs!")
+            model = torch.nn.DataParallel(model)
         if not args.train:
             model_path = '../model_save/' + args.explainer + '/' + state + '/' + state + ".pt"
             model.load_state_dict(torch.load(model_path))
