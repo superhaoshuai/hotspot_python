@@ -1,8 +1,3 @@
-import os
-import sys
-dir_path = os.path.dirname(os.path.realpath(__file__)).replace('\evaluation', '')
-sys.path.append(dir_path)
-
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from TSX.utils import load_data, load_county_data, get_initial_county_data, train_model, load_county_name, get_importance_value, \
@@ -183,7 +178,7 @@ def state_level_computation_multitask(state, transfer):
             df = load_data(path + 'NY_covid_mobility_link_weekly.csv')
     feature_county_list = list(df.columns[4:])
     county_list = list(set(df['next_area_fip'].tolist()))
-    county_list = [17031, 17019, 17097, 17043, 17197]
+    # county_list = [17031, 17019, 17097, 17043, 17197]
     county_list = [str(ct) for ct in county_list]
     county_name_list = load_county_name(county_list)
     county_dict = dict(zip(county_list, county_name_list))
@@ -320,9 +315,9 @@ if __name__ == '__main__':
     parser.add_argument('--explainer', type=str, default='IMVTensorLSTMMultiTask', help='Explainer model')
     parser.add_argument('--fillna', type=str, default='zero', help='fill na')
     parser.add_argument('--seq_length', type=int, default=14, help='seq_length')
-    parser.add_argument('--batch_size', type=int, default=32, help='batch_size')
+    parser.add_argument('--batch_size', type=int, default=16, help='batch_size')
     parser.add_argument('--hidden_size', type=int, default=128, help='hidden_size')
-    parser.add_argument('--n_epochs', type=int, default=500, help='n_epochs')
+    parser.add_argument('--n_epochs', type=int, default=150, help='n_epochs')
     parser.add_argument('--test_data_size', type=int, default=16, help='test_data_size')
     parser.add_argument('--drop_prob', type=float, default=0.0, help='drop prob')
     parser.add_argument('--lambda_reg', type=float, default=0.0, help='lambda regulation')
@@ -345,12 +340,14 @@ if __name__ == '__main__':
     if not os.path.exists('../plots/' + args.explainer):
         os.mkdir('../plots/' + args.explainer)
 
-    for i in [0.1, 0.01, 0.001]:
-        for j in [0.0, 0.1, 0.2]:
-            args.lambda_reg = i
-            args.drop_prob = j
-            print("regulation: {}, drop prob: {}".format(i, j))
-            main()
+    main()
+
+    #for i in [0.1, 0.01, 0.001]:
+    #    for j in [0.0, 0.1, 0.2]:
+    #        args.lambda_reg = i
+    #        args.drop_prob = j
+    #        print("regulation: {}, drop prob: {}".format(i, j))
+    #        main()
 
 
 
