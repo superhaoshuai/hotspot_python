@@ -313,7 +313,7 @@ if __name__ == '__main__':
     parser.add_argument('--explainer', type=str, default='IMVTensorLSTMMultiTask', help='Explainer model')
     parser.add_argument('--fillna', type=str, default='zero', help='fill na')
     parser.add_argument('--seq_length', type=int, default=14, help='seq_length')
-    parser.add_argument('--batch_size', type=int, default=32, help='batch_size')
+    parser.add_argument('--batch_size', type=int, default=8, help='batch_size')
     parser.add_argument('--hidden_size', type=int, default=128, help='hidden_size')
     parser.add_argument('--n_epochs', type=int, default=150, help='n_epochs')
     parser.add_argument('--test_data_size', type=int, default=16, help='test_data_size')
@@ -323,8 +323,8 @@ if __name__ == '__main__':
     parser.add_argument('--em', action='store_false')
     parser.add_argument('--save', action='store_true')
     args = parser.parse_args()
-    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    device = 'cpu'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # device = 'cpu'
     if not os.path.exists('../plots'):
         os.mkdir('../plots')
     if not os.path.exists('../model_save'):

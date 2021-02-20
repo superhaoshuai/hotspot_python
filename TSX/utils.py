@@ -194,14 +194,14 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 task_idx = task_idx[0].type(torch.LongTensor)
                 activated_share_columns = activated_share_columns[0, :]
                 y_pred, alphas, betas, theta, loss = model(batch_x, batch_y, task_idx, activated_share_columns)
-                # l_list += [1 / (2 * torch.exp(theta)) * loss + theta / 2]
-                l_list += [loss]
+                l_list += [1 / (2 * torch.exp(theta)) * loss + theta / 2]
+                # l_list += [loss]
                 regularization_params_list = ['F_alpha_n', 'F_alpha_n_b', 'F_beta.weight']
                 for name, param in model.named_parameters():
                     if name in regularization_params_list:
-                        # l_list += [1 / (2 * torch.exp(theta))
-                        #           * torch.linalg.norm(param) * lambda_reg]
-                        l_list += [torch.linalg.norm(param) * lambda_reg]
+                        l_list += [1 / (2 * torch.exp(theta))
+                                   * torch.linalg.norm(param) * lambda_reg]
+                         #l_list += [torch.linalg.norm(param) * lambda_reg]
             if model_name == "TransferLearning" and state == "NY_flu_covid":
                 flu_params = flu_model.state_dict()
                 covid_params = model.state_dict()
@@ -233,7 +233,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
             counter += 1
         if counter == patience:
             break
-        if i % 20 == 0:
+        if i % 5 == 0:
             print("Iter: ", i, "train: ", mse_train ** 0.5, "val: ", mse_val ** 0.5)
             torch.save(model.state_dict(), save_model_path + state + ".pt")
     plt.plot(train_loss_trend, label='Train loss')
