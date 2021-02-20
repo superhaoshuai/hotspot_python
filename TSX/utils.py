@@ -200,7 +200,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 for name, param in model.named_parameters():
                     if name in regularization_params_list:
                         l_list += [1 / (2 * torch.exp(theta))
-                                   * torch.linalg.norm(param) * lambda_reg]
+                                   * torch.norm(param) * lambda_reg]
                          #l_list += [torch.linalg.norm(param) * lambda_reg]
             if model_name == "TransferLearning" and state == "NY_flu_covid":
                 flu_params = flu_model.state_dict()
@@ -209,7 +209,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 for name, param in model.named_parameters():
                     if name in updating_params:
                         l_list += [1 / (2 * torch.exp(theta))
-                                   * torch.linalg.norm(param - flu_params[name]) * lambda_trans]
+                                   * torch.norm(param - flu_params[name]) * lambda_trans]
             l = sum(l_list)
             l.backward()
             mse_train += l.item()
