@@ -1,6 +1,7 @@
 import torch
 import pandas as pd
 import numpy as np
+import collections
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import TensorDataset, DataLoader
@@ -194,8 +195,10 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 # activated_share_columns = activated_share_columns[0, :]
                 task_idx = task_idx.type(torch.LongTensor)
                 y_pred, alphas, betas, theta, loss = model(batch_x, batch_y, task_idx, activated_share_columns)
-                theta = theta.mean()
-                l_list += [1 / (2 * torch.exp(theta)) * loss.mean() + theta / 2]
+                if isinstance(collections.Sequence, list):
+                    loss = loss.mean()
+                    theta = theta.mean()
+                l_list += [1 / (2 * torch.exp(theta)) * loss + theta / 2]
                 # l_list += [loss]
                 regularization_params_list = ['F_alpha_n', 'F_alpha_n_b', 'F_beta.weight']
                 for name, param in model.named_parameters():
