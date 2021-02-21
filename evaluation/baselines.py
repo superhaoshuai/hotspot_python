@@ -176,7 +176,7 @@ def state_level_computation_multitask(state, transfer):
             df = load_data(path + 'NY_covid_mobility_link_weekly.csv')
     feature_county_list = list(df.columns[4:])
     county_list = list(set(df['next_area_fip'].tolist()))
-    # county_list = [17031, 17019, 17097, 17043, 17197]
+    county_list = [17031, 17019, 17097, 17043, 17197]
     county_list = [str(ct) for ct in county_list]
     county_name_list = load_county_name(county_list)
     county_dict = dict(zip(county_list, county_name_list))

@@ -195,7 +195,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 # activated_share_columns = activated_share_columns[0, :]
                 task_idx = task_idx.type(torch.LongTensor)
                 y_pred, alphas, betas, theta, loss = model(batch_x, batch_y, task_idx, activated_share_columns)
-                if not loss.shape:
+                if loss.shape:
                     loss = loss.mean()
                     theta = theta.mean()
                 l_list += [1 / (2 * torch.exp(theta)) * loss + theta / 2]
