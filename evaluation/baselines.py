@@ -320,12 +320,12 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=8, help='batch_size')
     parser.add_argument('--hidden_size', type=int, default=128, help='hidden_size')
     parser.add_argument('--n_epochs', type=int, default=150, help='n_epochs')
-    parser.add_argument('--test_data_size', type=int, default=17, help='test_data_size')
+    parser.add_argument('--test_data_size', type=int, default=16, help='test_data_size')
     parser.add_argument('--drop_prob', type=float, default=0.0, help='drop prob')
     parser.add_argument('--lambda_reg', type=float, default=0.0, help='lambda regulation')
     parser.add_argument('--train', action='store_false')
     parser.add_argument('--em', action='store_false')
-    parser.add_argument('--save', action='store_true')
+    parser.add_argument('--save', action='store_false')
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # device = 'cpu'
