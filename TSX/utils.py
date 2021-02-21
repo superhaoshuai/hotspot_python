@@ -196,6 +196,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 task_idx = task_idx.type(torch.LongTensor)
                 y_pred, alphas, betas, theta, loss = model(batch_x, batch_y, task_idx, activated_share_columns)
                 if loss.shape:
+                    print("11")
                     loss = loss.mean()
                     theta = theta.mean()
                 l_list += [1 / (2 * torch.exp(theta)) * loss + theta / 2]
