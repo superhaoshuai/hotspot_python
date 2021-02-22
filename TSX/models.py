@@ -132,7 +132,6 @@ class IMVTensorLSTMMultiTask(torch.jit.ScriptModule):
         t1_shape = task_bias_matrix.shape[0]
         t2_shape = self.input_share_dim
 
-
         test_vector = torch.zeros(task_bias_matrix.shape[0] + self.input_share_dim, dtype=torch.long)
         test_vector[:t1_shape] = task_vector
         test_vector[t1_shape:] = activated_share_columns

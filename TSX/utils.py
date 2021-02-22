@@ -1,7 +1,6 @@
 import torch
 import pandas as pd
 import numpy as np
-import collections
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import TensorDataset, DataLoader
@@ -23,9 +22,9 @@ def load_county_name(county_fips_list):
     cenpop = load_cenpop_dataset()
     feature_name = []
     for i, idx in enumerate(county_fips_list):
-        if idx == 'county_covid_cases':
+        if idx == 'county_covid_cases' or idx == 'next_area_cmi':
             feature_name += [idx]
-        elif idx == 'next_area_cases':
+        elif idx == 'next_area_cases' or idx == 'next_area_active_cases':
             feature_name += ['county_covid_cases']
         elif idx == '36061':
             feature_name += ['NewYorkCity']
@@ -60,7 +59,7 @@ def load_data(path='./data/'):
     return df
 
 
-def get_initial_county_data(df, county_fips, fillna, task_idx):
+def get_initial_county_data(df, county_fips, fillna, input_task_feature, task_idx):
     one_df = df[df["next_area_fip"] == int(county_fips)].sort_values("local_date")
     one_df = one_df[one_df.columns[3:]]
     if fillna == 'zero':
@@ -69,7 +68,7 @@ def get_initial_county_data(df, county_fips, fillna, task_idx):
         one_df.iloc[0].fillna(0, inplace=True)
         one_df.fillna(method='ffill', inplace=True)
     criteria = one_df.sum(axis=0) != 0
-    activated_shared_columns = np.array(criteria.astype(int).tolist()[1:])
+    activated_shared_columns = np.array(criteria.astype(int).tolist()[input_task_feature:])
     if task_idx == -1:
         one_df = one_df[criteria.index[criteria]]
     #if len(one_df.index) < 40:
@@ -79,21 +78,17 @@ def get_initial_county_data(df, county_fips, fillna, task_idx):
     return one_df, activated_shared_columns
 
 
-def load_county_data(df, county_fips, seq_length, batch_size, test_data_size, fillna, task_idx=-1):
-    one_df, activated_shared_columns = get_initial_county_data(df, county_fips, fillna, task_idx)
+def load_county_data(df, county_fips, seq_length, batch_size, test_data_size, fillna, input_task_feature, input_task_feature_name, task_idx=-1):
+    one_df, activated_shared_columns = get_initial_county_data(df, county_fips, fillna, input_task_feature, task_idx)
     feature_name = load_county_name(one_df.columns)
-    feature_fips = ['county_covid_cases'] + list(one_df.columns[1:])
-    test_data = one_df[-test_data_size:]
-    train_data = one_df[:-test_data_size]
+    feature_fips = input_task_feature_name + list(one_df.columns[input_task_feature:])
     scaler = MinMaxScaler(feature_range=(0, 1))
 
-    train_data_normalized = scaler.fit_transform(train_data)
-    test_data_normalized = scaler.transform(test_data)
-    total_data_normalized = scaler.transform(one_df)
-
-    X_train, y_train = create_sequences(train_data_normalized, seq_length)
-    X_test, y_test = create_sequences(test_data_normalized, seq_length)
+    total_data_normalized = scaler.fit_transform(one_df)
     X_total, y_total = create_sequences(total_data_normalized, seq_length)
+
+    X_train, y_train = X_total[:-test_data_size], y_total[:-test_data_size]
+    X_test, y_test = X_total[-test_data_size:], y_total[-test_data_size:]
 
     X_train = torch.from_numpy(X_train).float()
     y_train = torch.from_numpy(y_train).float().view(-1, 1)
@@ -168,11 +163,11 @@ def train_model(model, model_name, train_loader, valid_loader, optimizer, epoch_
     plt.close()
 
 
-def train_model_multitask(model, model_name, data_train_loader_list, valid_loader_list, flu_model, input_task_feature,
+def train_model_multitask(model, model_name, data_train_loader_list, valid_loader_list, flu_model, input_task_feature, start_epoch, valid_loss_min,
                           optimizer, epoch_scheduler, n_epochs, device, state, iterations, lambda_reg, cv=0):
     loss_fn = torch.nn.MSELoss()
     patience = n_epochs
-    min_val_loss = 9999
+    min_val_loss = valid_loss_min
     counter = 0
     save_model_path = '../model_save/' + model_name + '/' + state + '/'
     train_loss_trend = []
@@ -196,7 +191,6 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                 task_idx = task_idx.type(torch.LongTensor)
                 y_pred, alphas, betas, theta, loss = model(batch_x, batch_y, task_idx, activated_share_columns)
                 if loss.shape:
-                    print("11")
                     loss = loss.mean()
                     theta = theta.mean()
                 l_list += [1 / (2 * torch.exp(theta)) * loss + theta / 2]
@@ -232,22 +226,67 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
                     mse_val += loss_fn(output_val, batch_y).item()
         train_loss_trend += [mse_train]
         test_loss_trend += [mse_val]
-        if min_val_loss > mse_val ** 0.5:
+        checkpoint = {
+            'epoch': i + 1,
+            'valid_loss_min': min_val_loss,
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+        }
+        checkpoint_path = save_model_path + state + ".pt"
+        best_model_path = save_model_path + state + "_best.pt"
+        if min_val_loss > mse_val ** 0.5 and i % 10 == 0:
             min_val_loss = mse_val ** 0.5
             counter = 0
+            save_ckp(checkpoint, True, checkpoint_path, best_model_path)
         else:
             counter += 1
         if counter == patience:
             break
-        if i % 5 == 0:
-            print("Iter: ", i, "train: ", mse_train ** 0.5, "val: ", mse_val ** 0.5)
-            torch.save(model.state_dict(), save_model_path + state + ".pt")
-    plt.plot(train_loss_trend, label='Train loss')
-    plt.plot(test_loss_trend, label='Validation loss')
-    plt.legend()
-    plot_path = '../plots/' + model_name + "/" + state + "/" + "loss_trend" + ".pdf"
-    plt.savefig(plot_path)
+        if i % 10 == 0:
+            print("Iter: ", i + start_epoch, "train: ", mse_train ** 0.5, "val: ", mse_val ** 0.5)
+            save_ckp(checkpoint, False, checkpoint_path, best_model_path)
+    plot_path = '../plots/' + model_name + "/" + state + "/"
+    plot_loss_trend(train_loss_trend, "Train loss", plot_path + "train_loss_trend" + ".pdf")
+    plot_loss_trend(test_loss_trend, "Validation loss", plot_path + "valid_loss_trend" + ".pdf")
     plt.close()
+
+
+def plot_loss_trend(loss_trend, label, path):
+    plt.plot(loss_trend, label=label)
+    plt.legend()
+    plt.savefig(path)
+
+
+def load_ckp(checkpoint_path, model, optimizer):
+    """
+    checkpoint_path: path to save checkpoint
+    model: model that we want to load checkpoint parameters into
+    optimizer: optimizer we defined in previous training
+    """
+    # load check point
+    checkpoint = torch.load(checkpoint_path)
+    # initialize state_dict from checkpoint to model
+    model.load_state_dict(checkpoint['state_dict'])
+    # initialize optimizer from checkpoint to optimizer
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    # initialize valid_loss_min from checkpoint to valid_loss_min
+    valid_loss_min = checkpoint['valid_loss_min']
+    # return model, optimizer, epoch value, min validation loss
+    return model, optimizer, checkpoint['epoch'], valid_loss_min
+
+
+def save_ckp(state, is_best, checkpoint_path, best_model_path):
+    """
+    state: checkpoint we want to save
+    is_best: is this the best checkpoint; min validation loss
+    checkpoint_path: path to save checkpoint
+    best_model_path: path to save best model
+    """
+    torch.save(state, checkpoint_path)
+    # if it is a best model, min validation loss
+    if is_best:
+        torch.save(state, best_model_path)
+
 
 
 def get_importance_value(alphas, beta):

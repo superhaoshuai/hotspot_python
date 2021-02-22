@@ -2,7 +2,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from TSX.utils import load_data, load_county_data, get_initial_county_data, train_model, load_county_name, get_importance_value, \
     plot_temporal_importance, get_top_importance_value, get_normalize_importance_value, get_hotspot_weight, \
-    train_model_multitask
+    train_model_multitask, load_ckp, mean_absolute_percentage_error
 from TSX.models import IMVTensorLSTM, IMVTensorLSTMMultiTask
 
 import os
@@ -46,8 +46,8 @@ def evaluate_performance(model, state, fips, county_name, scaler, X_train, y_tra
     model.eval()
     if args.explainer == "IMVTensorLSTMMultiTask" or args.explainer == 'TransferLearning':
         X_total, task_idx, activated_share_columns = X_total
-        activated_share_columns = activated_share_columns[0, :]
-        task_idx = task_idx[0].type(torch.LongTensor)
+        # activated_share_columns = activated_share_columns[0, :]
+        task_idx = task_idx.type(torch.LongTensor)
         with torch.no_grad():
             total_predict, total_alphas, total_betas, theta, neg_llk = model(X_total.to(device), y_total.to(device), task_idx, activated_share_columns)
             train_predict, train_alphas, train_betas, theta, neg_llk = model(X_train.to(device), y_train.to(device), task_idx, activated_share_columns)
@@ -65,11 +65,13 @@ def evaluate_performance(model, state, fips, county_name, scaler, X_train, y_tra
         test_y_back = scaler_for_cases.inverse_transform(y_test.data.numpy())
         mse = mean_squared_error(test_y_back, test_predict_back)
         mae = mean_absolute_error(test_y_back, test_predict_back)
+        mape = mean_absolute_percentage_error(test_y_back, test_predict_back)
         rmse = round(np.sqrt(mse), 3)
         mae = round(mae, 3)
     else:
         mae = 0
         rmse = 0
+        mape = 0
     alphas, betas = get_importance_value(train_alphas, train_betas)
 
     #print('County {} MAE: {}'.format(fips, mae))
@@ -90,7 +92,7 @@ def evaluate_performance(model, state, fips, county_name, scaler, X_train, y_tra
         plt.savefig(plot_path, dpi=300, orientation='landscape')
         #plt.show()
         plt.close()
-    return mae, rmse, alphas, betas
+    return mae, rmse, mape, alphas, betas
 
 
 def state_level_computation(state):
@@ -104,6 +106,7 @@ def state_level_computation(state):
     county_dict = dict(zip(county_list, county_name_list))
     mae_list = []
     rmse_list = []
+    mape_list = []
     valid_county_list = []
     county_importance_dict = dict(zip(['county_covid_cases'] + feature_county_list, np.zeros(len(feature_county_list) + 1)))
     error_county_list = []
@@ -124,7 +127,7 @@ def state_level_computation(state):
             continue
         feature_size = X_total.shape[2]
         model = train_one_county(county_fips, state, data_train_loader, data_test_loader, feature_size)
-        mae, rmse, alphas, betas = evaluate_performance(model, state, county_fips, county_name, scaler, X_train, y_train,
+        mae, rmse, mape, alphas, betas = evaluate_performance(model, state, county_fips, county_name, scaler, X_train, y_train,
                                                        X_test, y_test, X_total, y_total)
         normalize_betas = get_normalize_importance_value(betas)
         hotspot_weight = get_hotspot_weight(y_train)
@@ -141,8 +144,9 @@ def state_level_computation(state):
 
         mae_list += [mae]
         rmse_list += [rmse]
+        mape_list += [mape]
         valid_county_list += [county_fips]
-    performance_df = pd.DataFrame({'county': valid_county_list, 'MAE': mae_list, 'RMSE': rmse_list})
+    performance_df = pd.DataFrame({'county': valid_county_list, 'MAE': mae_list, 'RMSE': rmse_list, 'MAPE': mape_list})
     importance_df = pd.DataFrame(county_importance_dict.items(), columns=['fips', 'Importance_score']).\
         sort_values(by='Importance_score', ascending=False)
     importance_df['county_name'] = load_county_name(importance_df['fips'])
@@ -174,7 +178,9 @@ def state_level_computation_multitask(state, transfer):
             df = load_data(path + 'NY_flu_mobility_link_weekly.csv')
         else:
             df = load_data(path + 'NY_covid_mobility_link_weekly.csv')
-    feature_county_list = list(df.columns[4:])
+    input_task_feature = args.input_task_feature
+    input_task_feature_name = ['county_covid_cases', 'next_area_cmi']
+    feature_county_list = list(df.columns[3 + input_task_feature:])
     county_list = list(set(df['next_area_fip'].tolist()))
     county_list = [17031, 17019, 17097, 17043, 17197]
     county_list = [str(ct) for ct in county_list]
@@ -182,14 +188,14 @@ def state_level_computation_multitask(state, transfer):
     county_dict = dict(zip(county_list, county_name_list))
     error_county_list = []
     county_importance_dict = dict(
-        zip(['county_covid_cases'] + feature_county_list, np.zeros(len(feature_county_list) + 1)))
+        zip(input_task_feature_name + feature_county_list, np.zeros(len(feature_county_list) + input_task_feature)))
 
     mae_list = []
     rmse_list = []
+    mape_list = []
     valid_county_list = []
     data_train_loader_list = []
     data_test_loader_list = []
-    print(county_list)
     print(county_name_list)
     task_num = 0
     for county_fips, county_name in county_dict.items():
@@ -198,21 +204,20 @@ def state_level_computation_multitask(state, transfer):
             if not os.path.exists(county_plot_path):
                 os.mkdir(county_plot_path)
 
-            _ = get_initial_county_data(df, county_fips, args.fillna, task_num)
+            _ = get_initial_county_data(df, county_fips, args.fillna, input_task_feature, task_num)
             task_num += 1
         except ValueError as err:
             print(err.args)
             error_county_list += [county_fips]
             continue
     task_idx = 0
-    input_task_feature = 1
     train_size = 0
     for county_fips, county_name in county_dict.items():
         try:
             data_train_loader, data_test_loader, X_train, y_train, X_test, y_test, X_total, \
                 y_total, scaler, feature_name, feature_fips = \
                 load_county_data(df, county_fips, args.seq_length, args.batch_size, args.test_data_size,
-                                args.fillna, task_idx)
+                                args.fillna, input_task_feature, input_task_feature_name, task_idx)
             task_idx += 1
             data_train_loader_list += [data_train_loader]
             data_test_loader_list += [data_test_loader]
@@ -234,24 +239,29 @@ def state_level_computation_multitask(state, transfer):
             model_path = '../model_save/' + args.explainer + '/NY_flu/NY_flu.pt'
             flu_model.load_state_dict(torch.load(model_path))
 
-    if args.explainer == 'IMVTensorLSTMMultiTask' or args.explainer == 'TransferLearning':
-        model = IMVTensorLSTMMultiTask(input_share_dim, input_task_feature, task_num, 1, hidden_size, device, args.em,
-                                       args.drop_prob).to(device)
-        if torch.cuda.device_count() > 1:
-            print("Let's use", torch.cuda.device_count(), "GPUs!")
-            model = torch.nn.DataParallel(model)
-        if not args.train:
-            model_path = '../model_save/' + args.explainer + '/' + state + '/' + state + ".pt"
-            model.load_state_dict(torch.load(model_path))
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001, amsgrad=True)
-        epoch_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 100, gamma=1)
+    model = IMVTensorLSTMMultiTask(input_share_dim, input_task_feature, task_num, 1, hidden_size, device, args.em,
+                                    args.drop_prob).to(device)
+    if torch.cuda.device_count() > 1:
+        print("Let's use", torch.cuda.device_count(), "GPUs!")
+        model = torch.nn.DataParallel(model)
 
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, amsgrad=True)
+    epoch_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 100, gamma=1)
+    start_epoch = 0
+    valid_loss_min = 9999
+    if not args.train:
+        model_path = '../model_save/' + args.explainer + '/' + state + '/' + state + "_best.pt"
+        model, optimizer, start_epoch, valid_loss_min = load_ckp(model_path, model, optimizer)
+        print("model = ", model)
+        print("optimizer = ", optimizer)
+        print("start_epoch = ", start_epoch)
+        print("valid_loss_min = {:.6f}".format(valid_loss_min))
+        n_epochs = n_epochs - start_epoch
+    if not args.evaluate:
         train_model_multitask(model, args.explainer, data_train_loader_list, data_test_loader_list, flu_model,
-                              input_task_feature, optimizer=optimizer, epoch_scheduler=epoch_scheduler, n_epochs=n_epochs,
+                              input_task_feature, start_epoch, valid_loss_min, optimizer=optimizer, epoch_scheduler=epoch_scheduler, n_epochs=n_epochs,
                               device=device, state=state, iterations=iterations, lambda_reg=args.lambda_reg, cv=0)
 
-    else:
-        model = []
     stop_time = timeit.default_timer()
     task_idx = 0
     for county_fips, county_name in county_dict.items():
@@ -259,10 +269,10 @@ def state_level_computation_multitask(state, transfer):
             data_train_loader, data_test_loader, X_train, y_train, X_test, y_test, X_total, \
                 y_total, scaler, feature_name, feature_fips = \
                 load_county_data(df, county_fips, args.seq_length, args.batch_size, args.test_data_size,
-                                 args.fillna, task_idx)
+                                 args.fillna, input_task_feature, input_task_feature_name, task_idx)
         except ValueError as err:
             continue
-        mae, rmse, alphas, betas = evaluate_performance(model, state, county_fips, county_name, scaler, X_train,
+        mae, rmse, mape, alphas, betas = evaluate_performance(model, state, county_fips, county_name, scaler, X_train,
                                                         y_train, X_test, y_test, X_total, y_total)
         for i, ct in enumerate(feature_fips):
             if i < input_task_feature:
@@ -272,8 +282,9 @@ def state_level_computation_multitask(state, transfer):
         task_idx += 1
         mae_list += [mae]
         rmse_list += [rmse]
+        mape_list += [mape]
         valid_county_list += [county_fips]
-    performance_df = pd.DataFrame({'county': valid_county_list, 'MAE': mae_list, 'RMSE': rmse_list})
+    performance_df = pd.DataFrame({'county': valid_county_list, 'MAE': mae_list, 'RMSE': rmse_list, 'MAPE': mape_list})
     importance_df = pd.DataFrame(county_importance_dict.items(), columns=['fips', 'Importance_score']). \
         sort_values(by='Importance_score', ascending=False)
     importance_df['county_name'] = load_county_name(importance_df['fips'])
@@ -316,14 +327,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run baseline model for covid')
     parser.add_argument('--explainer', type=str, default='IMVTensorLSTMMultiTask', help='Explainer model')
     parser.add_argument('--fillna', type=str, default='zero', help='fill na')
+    parser.add_argument('--input_task_feature', type=int, default=2, help='input_task_feature')
     parser.add_argument('--seq_length', type=int, default=14, help='seq_length')
-    parser.add_argument('--batch_size', type=int, default=8, help='batch_size')
+    parser.add_argument('--batch_size', type=int, default=12, help='batch_size')
     parser.add_argument('--hidden_size', type=int, default=128, help='hidden_size')
-    parser.add_argument('--n_epochs', type=int, default=150, help='n_epochs')
-    parser.add_argument('--test_data_size', type=int, default=16, help='test_data_size')
-    parser.add_argument('--drop_prob', type=float, default=0.0, help='drop prob')
-    parser.add_argument('--lambda_reg', type=float, default=0.0, help='lambda regulation')
+    parser.add_argument('--n_epochs', type=int, default=600, help='n_epochs')
+    parser.add_argument('--test_data_size', type=int, default=1, help='test_data_size')
+    parser.add_argument('--drop_prob', type=float, default=0.1, help='drop prob')
+    parser.add_argument('--lambda_reg', type=float, default=0.001, help='lambda regulation')
     parser.add_argument('--train', action='store_false')
+    parser.add_argument('--evaluate', action='store_true')
     parser.add_argument('--em', action='store_false')
     parser.add_argument('--save', action='store_false')
     args = parser.parse_args()
