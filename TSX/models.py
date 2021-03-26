@@ -67,10 +67,10 @@ class IMVTensorLSTM(torch.jit.ScriptModule):
         return mean, alphas, betas
 
 
-class IMVTensorLSTMMultiTask(torch.jit.ScriptModule):
+class IMVTensorLSTMMultiTask(torch.jit.ScriptModule): #torch.jit.ScriptModule, nn.Module
     __constants__ = ["n_units", "input_dim", "input_task_feature", "task_num", "input_share_dim"]
 
-    def __init__(self, input_share_dim, input_task_feature, task_num, output_dim, n_units, device, em, drop_prob, init_std=0.02):
+    def __init__(self, input_share_dim, input_task_feature, task_num, output_dim, n_units, device, em, drop_prob, decoding_steps, init_std=0.02):
         super().__init__()
         input_dim = input_share_dim + input_task_feature*task_num
         self.device = device
@@ -87,6 +87,20 @@ class IMVTensorLSTMMultiTask(torch.jit.ScriptModule):
         self.b_i = nn.Parameter(torch.randn(input_dim, n_units) * init_std)
         self.b_f = nn.Parameter(torch.randn(input_dim, n_units) * init_std)
         self.b_o = nn.Parameter(torch.randn(input_dim, n_units) * init_std)
+
+        self.Decoder_U_j = nn.Parameter(torch.randn(input_dim, 2 * n_units, 2 * n_units) * init_std)
+        self.Decoder_U_i = nn.Parameter(torch.randn(input_dim, 2 * n_units, 2 * n_units) * init_std)
+        self.Decoder_U_f = nn.Parameter(torch.randn(input_dim, 2 * n_units, 2 * n_units) * init_std)
+        self.Decoder_U_o = nn.Parameter(torch.randn(input_dim, 2 * n_units, 2 * n_units) * init_std)
+        self.Decoder_W_j = nn.Parameter(torch.randn(input_dim, 2 * n_units, 2 * n_units) * init_std)
+        self.Decoder_W_i = nn.Parameter(torch.randn(input_dim, 2 * n_units, 2 * n_units) * init_std)
+        self.Decoder_W_f = nn.Parameter(torch.randn(input_dim, 2 * n_units, 2 * n_units) * init_std)
+        self.Decoder_W_o = nn.Parameter(torch.randn(input_dim, 2 * n_units, 2 * n_units) * init_std)
+        self.Decoder_b_j = nn.Parameter(torch.randn(input_dim, 2 * n_units) * init_std)
+        self.Decoder_b_i = nn.Parameter(torch.randn(input_dim, 2 * n_units) * init_std)
+        self.Decoder_b_f = nn.Parameter(torch.randn(input_dim, 2 * n_units) * init_std)
+        self.Decoder_b_o = nn.Parameter(torch.randn(input_dim, 2 * n_units) * init_std)
+
         self.F_alpha_n = nn.Parameter(torch.randn(input_dim, n_units, 1) * init_std)
         self.F_alpha_n_b = nn.Parameter(torch.randn(input_dim, 1) * init_std)
         self.log_vars = nn.Parameter(torch.FloatTensor([-0.5]*task_num))
@@ -103,6 +117,8 @@ class IMVTensorLSTMMultiTask(torch.jit.ScriptModule):
 
         # self.mv_dense_var_n = nn.Parameter(torch.randn(input_dim, n_units, 1) * init_std)
         # self.mv_dense_var_b = nn.Parameter(torch.randn(input_dim, 1) * init_std)
+
+        self.decoding_steps = decoding_steps
 
         self.loss = torch.nn.MSELoss()
         self.dropout = nn.Dropout(drop_prob)
@@ -123,6 +139,7 @@ class IMVTensorLSTMMultiTask(torch.jit.ScriptModule):
         activated_share_columns = activated_share_columns[0, :]
 
         outputs = torch.jit.annotate(List[Tensor], [])
+        #outputs = []
         task_vector = torch.repeat_interleave(torch.tensor([int(i == task_idx) for i in range(self.task_num)]),
                                               self.input_task_feature, dim=0)
         task_bias_matrix = torch.repeat_interleave(task_vector[:, None], self.n_units, dim=1)
@@ -196,31 +213,92 @@ class IMVTensorLSTMMultiTask(torch.jit.ScriptModule):
         betas_1 = torch.exp(betas_1)
         betas_1 = betas_1 / torch.sum(betas_1, dim=1, keepdim=True)
 
+        mean = torch.jit.annotate(List[Tensor], [])
+        tmp_energy_list = torch.jit.annotate(List[Tensor], [])
         if self.EM:
-            mu = self.Phi(hg)
-            h_mean = self.mv_dense_mean(mu)
-            h_mean_real = h_mean[:, complement_indices, :]
-            mean = torch.sum(betas_1 * h_mean[:, complement_indices, :], dim=1) + torch.sum(betas_2 * h_mean[:, indices, :], dim=1)
+            if self.decoding_steps == 1:
+                mu = self.Phi(hg)
+                h_mean = self.mv_dense_mean(mu)
+                h_mean_real = h_mean[:, complement_indices, :]
+                mean += [torch.sum(betas_1 * h_mean[:, complement_indices, :], dim=1) + torch.sum(betas_2 * h_mean[:, indices, :], dim=1)]
 
-            y_tile = torch.repeat_interleave(y.unsqueeze(1), len(complement_indices), dim=1)
-            tmp_llk = torch.exp(-0.5 * torch.square(y_tile - h_mean_real)) / (2.0 * self.torch_pi) ** 0.5
-            lk = torch.sum(tmp_llk * betas_1, dim=1)
-            neg_llk = torch.sum(-1.0 * torch.log(lk + 1e-5), dim=0)
+                y_tile = torch.repeat_interleave(y.unsqueeze(1), len(complement_indices), dim=1)
+                tmp_llk = torch.exp(-0.5 * torch.square(y_tile - h_mean_real)) / (2.0 * self.torch_pi) ** 0.5
+                lk = torch.sum(tmp_llk * betas_1, dim=1)
+                neg_llk = torch.sum(-1.0 * torch.log(lk + 1e-5), dim=0)
+                loss = torch.squeeze(neg_llk)
+                tmp_energy_list += [torch.exp(-0.5 * torch.square(y_tile - h_mean_real)) + 0.001]
+            else:
+                decoder_outputs = self._hidden_state_to_multi_output(hg, task_bias)
+                loss = torch.tensor(0.0).to(self.device)
+                for step, output in enumerate(decoder_outputs):
+                    mu = self.Phi(output)
+                    h_mean = self.mv_dense_mean(mu)
+                    h_mean_real = h_mean[:, complement_indices, :]
+                    mean += [torch.sum(betas_1 * h_mean[:, complement_indices, :], dim=1) + torch.sum(
+                        betas_2 * h_mean[:, indices, :], dim=1)]
+                    y_tile = torch.repeat_interleave(y[:, step].view(-1,1,1), len(complement_indices), dim=1)
+                    tmp_llk = torch.exp(-0.5 * torch.square(y_tile - h_mean_real)) / (2.0 * self.torch_pi) ** 0.5
+                    lk = torch.sum(tmp_llk * betas_1, dim=1)
+                    neg_llk = torch.sum(-1.0 * torch.log(lk + 1e-5), dim=0)
+                    loss += torch.squeeze(neg_llk)
+                    tmp_energy_list += [torch.exp(-0.5 * torch.square(y_tile - h_mean_real)) + 0.001]
             # -- posterior variable
+            tmp_energy = torch.sum(torch.stack(tmp_energy_list), dim=0)
             betas_temp = torch.zeros(betas.shape).to(self.device)
-            tmp_energy = torch.exp(-0.5 * torch.square(y_tile - h_mean_real)) + 0.001
             joint_llk = tmp_energy * betas_1
             normalizer = torch.sum(joint_llk, 1, keepdim=True)
             joint_llk_normalized = 1.0 * joint_llk / (normalizer + 1e-10)
             betas_temp[:, complement_indices, :] = joint_llk
-            loss = torch.squeeze(neg_llk)
         else:
-            mu = self.Phi_mu(hg)
-            mean = torch.sum(betas_1 * mu[:, complement_indices, :], dim=1) + torch.sum(betas_2 * mu[:, indices, :], dim=1)
             betas_temp = torch.zeros(betas.shape).to(self.device)
             betas_temp[:, complement_indices, :] = betas_1
-            loss = self.loss(mean, y)
+            if self.decoding_steps == 1:
+                mu = self.Phi_mu(hg)
+                mean += [torch.sum(betas_1 * mu[:, complement_indices, :], dim=1) + torch.sum(betas_2 * mu[:, indices, :], dim=1)]
+                loss = self.loss(mean[0], y)
+            else:
+                decoder_outputs = self._hidden_state_to_multi_output(hg, task_bias)
+                loss = torch.tensor(0.0).to(self.device)
+                for step, output in enumerate(decoder_outputs):
+                    mu = self.Phi_mu(output)
+                    mean += [torch.sum(betas_1 * mu[:, complement_indices, :], dim=1) + torch.sum(betas_2 * mu[:, indices, :], dim=1)]
+                    loss += self.loss(mean[step], y[:, step].unsqueeze(1))
         theta = self.log_vars[task_idx]
+        mean = torch.stack(mean).squeeze(2).permute(1, 0)
         return mean, alphas, betas_temp, theta, loss
 
+    @torch.jit.script_method
+    def _hidden_state_to_multi_output(self, hg, task_bias):
+        encoded = hg
+        h_tilda_t = torch.zeros(hg.shape[0], self.input_dim, 2 * self.n_units).to(self.device)
+        c_tilda_t = torch.zeros(hg.shape[0], self.input_dim, 2 * self.n_units).to(self.device)
 
+        task_bias_decoder = torch.ones((task_bias.shape[0], 2 * self.n_units))
+        task_bias_decoder[:, :self.n_units] = task_bias
+        task_bias_decoder[:, self.n_units:] = task_bias
+        task_bias_decoder = task_bias_decoder.to(self.device)
+        outputs = torch.jit.annotate(List[Tensor], [])
+        #outputs = []
+        for t in range(self.decoding_steps):
+
+            j_tilda_t = torch.tanh(torch.einsum("bij,ijk->bik", h_tilda_t, self.Decoder_W_j) +
+                                   torch.einsum("bij,ijk->bik", encoded, self.Decoder_U_j) +
+                                   task_bias_decoder * self.Decoder_b_j)
+
+            i_tilda_t = torch.sigmoid(torch.einsum("bij,ijk->bik", h_tilda_t, self.Decoder_W_i) +
+                                      torch.einsum("bij,ijk->bik", encoded, self.Decoder_U_i) +
+                                      task_bias_decoder * self.Decoder_b_i)
+            f_tilda_t = torch.sigmoid(torch.einsum("bij,ijk->bik", h_tilda_t, self.Decoder_W_f) +
+                                      torch.einsum("bij,ijk->bik", encoded, self.Decoder_U_f) +
+                                      task_bias_decoder * self.Decoder_b_f)
+            o_tilda_t = torch.sigmoid(torch.einsum("bij,ijk->bik", h_tilda_t, self.Decoder_W_o) +
+                                      torch.einsum("bij,ijk->bik", encoded, self.Decoder_U_o) +
+                                      task_bias_decoder * self.Decoder_b_o)
+
+            c_tilda_t = c_tilda_t * f_tilda_t + i_tilda_t * j_tilda_t
+
+            h_tilda_t = (o_tilda_t * torch.tanh(c_tilda_t))
+            outputs += [h_tilda_t]
+            #encoded = h_tilda_t
+        return outputs

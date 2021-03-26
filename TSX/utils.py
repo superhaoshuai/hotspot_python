@@ -2,6 +2,7 @@ import torch
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import datetime
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import TensorDataset, DataLoader
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -42,15 +43,22 @@ def softmax(x):
     return e / e.sum(axis=1).reshape((-1, 1))
 
 
-def create_sequences(data, seq_length):
+def create_sequences(data, seq_length, window):
     xs = []
     ys = []
-    for i in range(len(data)-seq_length):
+    for i in range(len(data)-seq_length - window + 1):
         x = data[i:(i+seq_length)]
-        y = data[i+seq_length, 0]
+        y = data[i+seq_length:i+seq_length+window, 0]
         xs.append(x)
         ys.append(y)
     return np.array(xs), np.array(ys)
+
+
+def create_time_sequence(data, seq_length):
+    date_list = []
+    for i in range(len(data)-seq_length):
+        date_list.append(datetime.datetime.strptime(data['local_date'].iloc[i+seq_length], '%Y-%m-%d').date())
+    return date_list
 
 
 def load_data(path='./data/'):
@@ -59,14 +67,16 @@ def load_data(path='./data/'):
     return df
 
 
-def get_initial_county_data(df, county_fips, fillna, input_task_feature, task_idx):
+def get_initial_county_data(df, county_fips, fillna, input_task_feature, seq_length, task_idx):
     one_df = df[df["next_area_fip"] == int(county_fips)].sort_values("local_date")
+    date_sequence = create_time_sequence(one_df, seq_length)
     one_df = one_df[one_df.columns[3:]]
     if fillna == 'zero':
         one_df.fillna(value=0, inplace=True)
     elif fillna == 'ffill':
         one_df.iloc[0].fillna(0, inplace=True)
         one_df.fillna(method='ffill', inplace=True)
+
     criteria = one_df.sum(axis=0) != 0
     activated_shared_columns = np.array(criteria.astype(int).tolist()[input_task_feature:])
     if task_idx == -1:
@@ -75,29 +85,42 @@ def get_initial_county_data(df, county_fips, fillna, input_task_feature, task_id
     #    raise ValueError('Data samples too small')
     if len(criteria.index[criteria]) < 2:
         raise ValueError('feature samples too small')
-    return one_df, activated_shared_columns
+    return one_df, activated_shared_columns, date_sequence
 
 
-def load_county_data(df, county_fips, seq_length, batch_size, test_data_size, fillna, input_task_feature, input_task_feature_name, task_idx=-1):
-    one_df, activated_shared_columns = get_initial_county_data(df, county_fips, fillna, input_task_feature, task_idx)
+def load_county_data(df, county_fips, seq_length, batch_size, test_data_size, fillna, input_task_feature, input_task_feature_name, decoding_steps, validation_size, task_idx=-1):
+    one_df, activated_shared_columns, date_sequence = get_initial_county_data(df, county_fips, fillna, input_task_feature, seq_length, task_idx)
     feature_name = load_county_name(one_df.columns)
     feature_fips = input_task_feature_name + list(one_df.columns[input_task_feature:])
     scaler = MinMaxScaler(feature_range=(0, 1))
-
     total_data_normalized = scaler.fit_transform(one_df)
-    X_total, y_total = create_sequences(total_data_normalized, seq_length)
+    if test_data_size > 0:
+        if validation_size == 0:
+            train_data_normalized = total_data_normalized[:-(decoding_steps + test_data_size - 1)]
+            test_data_normalized = total_data_normalized[-(decoding_steps + test_data_size - 1 + seq_length):]
+        else:
+            train_data_normalized = total_data_normalized[:-(decoding_steps + test_data_size - 1)]
+            valid_data_normalized = total_data_normalized
+    else:
+        train_data_normalized = total_data_normalized
+        test_data_normalized = total_data_normalized[-(decoding_steps + seq_length):]
 
-    X_train, y_train = X_total[:-test_data_size], y_total[:-test_data_size]
-    X_test, y_test = X_total[-test_data_size:], y_total[-test_data_size:]
+    #train_data_normalized = scaler.fit_transform(train_data)
+    #test_data_normalized = scaler.transform(test_data)
+    #total_data_normalized = scaler.transform(one_df)
+
+    X_train, y_train = create_sequences(train_data_normalized, seq_length, decoding_steps)
+    X_test, y_test = create_sequences(test_data_normalized, seq_length, decoding_steps)
+    X_total, y_total = create_sequences(total_data_normalized, seq_length, decoding_steps)
 
     X_train = torch.from_numpy(X_train).float()
-    y_train = torch.from_numpy(y_train).float().view(-1, 1)
+    y_train = torch.from_numpy(y_train).float()
 
     X_test = torch.from_numpy(X_test).float()
-    y_test = torch.from_numpy(y_test).float().view(-1, 1)
+    y_test = torch.from_numpy(y_test).float()
 
     X_total = torch.from_numpy(X_total).float()
-    y_total = torch.from_numpy(y_total).float().view(-1, 1)
+    y_total = torch.from_numpy(y_total).float()
     if task_idx == -1:
         data_train_loader = DataLoader(TensorDataset(X_train, y_train), shuffle=False, batch_size=batch_size)
         data_test_loader = DataLoader(TensorDataset(X_test, y_test), shuffle=False, batch_size=batch_size)
@@ -108,7 +131,7 @@ def load_county_data(df, county_fips, seq_length, batch_size, test_data_size, fi
         task_test_activated_shared_columns = torch.tensor(np.repeat(activated_shared_columns[None, ], X_test.shape[0], axis=0), dtype=torch.long)
         data_train_loader = DataLoader(TensorDataset(X_train, y_train, task_train, task_train_activated_shared_columns), shuffle=False, batch_size=batch_size)
         data_test_loader = DataLoader(TensorDataset(X_test, y_test, task_test, task_test_activated_shared_columns), shuffle=False, batch_size=batch_size)
-        X_total = [X_total, task_train, task_train_activated_shared_columns]
+        X_total = [X_total, task_train, task_train_activated_shared_columns, date_sequence]
     return data_train_loader, data_test_loader, X_train, y_train, X_test, y_test, X_total, y_total, scaler, \
            feature_name, feature_fips
 
@@ -164,7 +187,7 @@ def train_model(model, model_name, train_loader, valid_loader, optimizer, epoch_
 
 
 def train_model_multitask(model, model_name, data_train_loader_list, valid_loader_list, flu_model, input_task_feature, start_epoch, valid_loss_min,
-                          optimizer, epoch_scheduler, n_epochs, device, state, iterations, lambda_reg, cv=0):
+                          optimizer, epoch_scheduler, n_epochs, device, state, iterations, lambda_reg, lambda_trans, cv=0):
     loss_fn = torch.nn.MSELoss()
     patience = n_epochs
     min_val_loss = valid_loss_min
@@ -173,7 +196,7 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
     train_loss_trend = []
     test_loss_trend = []
     data_train_loader_iterator_list = [iter(data_loader) for data_loader in data_train_loader_list]
-    lambda_trans = 0.0
+    lambda_trans = lambda_trans
     for i in range(n_epochs):
         mse_train = 0
         for j in range(iterations):
@@ -204,7 +227,8 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
             if model_name == "TransferLearning" and state == "NY_flu_covid":
                 flu_params = flu_model.state_dict()
                 covid_params = model.state_dict()
-                updating_params = list(covid_params.keys())[0:8]
+                updating_params = list(covid_params.keys())[0:8] + ['F_alpha_n']
+                updating_params = [parm for parm in updating_params if not parm.startswith("b") and not parm.startswith("Decoder_b")]
                 for name, param in model.named_parameters():
                     if name in updating_params:
                         l_list += [1 / (2 * torch.exp(theta))
@@ -227,14 +251,14 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
         train_loss_trend += [mse_train]
         test_loss_trend += [mse_val]
         checkpoint = {
-            'epoch': i + 1,
+            'epoch': i + start_epoch + 1,
             'valid_loss_min': min_val_loss,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict(),
         }
         checkpoint_path = save_model_path + state + ".pt"
         best_model_path = save_model_path + state + "_best.pt"
-        if min_val_loss > mse_val ** 0.5 and i % 10 == 0:
+        if min_val_loss > mse_val ** 0.5 and i % 10 == 0 and i > 20:
             min_val_loss = mse_val ** 0.5
             counter = 0
             save_ckp(checkpoint, True, checkpoint_path, best_model_path)
@@ -248,13 +272,13 @@ def train_model_multitask(model, model_name, data_train_loader_list, valid_loade
     plot_path = '../plots/' + model_name + "/" + state + "/"
     plot_loss_trend(train_loss_trend, "Train loss", plot_path + "train_loss_trend" + ".pdf")
     plot_loss_trend(test_loss_trend, "Validation loss", plot_path + "valid_loss_trend" + ".pdf")
-    plt.close()
 
 
 def plot_loss_trend(loss_trend, label, path):
     plt.plot(loss_trend, label=label)
     plt.legend()
     plt.savefig(path)
+    plt.close()
 
 
 def load_ckp(checkpoint_path, model, optimizer):
@@ -356,4 +380,29 @@ def plot_temporal_importance(alphas, feature_name, explainer, state, fips, count
     plt.close()
 
 
+def load_confirmed_data():
+    df = pd.read_csv(r"D:\Dropbox\Coding_Project\hotspot_R\COVID_Final_Case_Data.csv")
+    df = df[df.local_date == "2020-06-11"]
+    df = df[["local_date", "FIPS", "Active"]]
+    df.fillna(0, inplace=True)
+    df['FIPS'] = df.apply(lambda x: str(int(x['FIPS'])),  axis=1)
+    return df
 
+
+def get_weight(area_fips, next_area_fips, confirmed):
+    weight = 0
+    area_fips = str(int(area_fips))
+    next_area_fips = str(int(next_area_fips))
+    index_fips = [str(fips) for fips in confirmed['FIPS']]
+    if area_fips in index_fips and next_area_fips in index_fips:
+        area_cases = confirmed[confirmed['FIPS'] == area_fips]['Active']
+        next_area_cases = confirmed[confirmed['FIPS'] == next_area_fips]['Active']
+        area_cases = np.asscalar(area_cases)
+        next_area_cases = np.asscalar(next_area_cases)
+        if area_cases > next_area_cases:
+            weight = 1
+        else:
+            weight = area_cases / next_area_cases
+        return weight
+    else:
+        return -1
