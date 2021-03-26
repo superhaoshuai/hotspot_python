@@ -1,1 +1,1 @@
-# hotspot_python
+# hotspot python
